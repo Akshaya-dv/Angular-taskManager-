@@ -82,7 +82,6 @@ app.post('/taskmanager/sigin', async (req, res) => {
 // get login data
 app.get('/taskmanager/signin', async (req, res) => {
     const email = req.query.email;
-    const pass = req.query.pass;
     const where = ` where email='${email}' `
     const data = await getuserdata(where);
     const status = JSON.stringify(data[1])
