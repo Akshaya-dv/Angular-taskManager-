@@ -35,17 +35,28 @@ CREATE TABLE IF NOT EXISTS tasktable (
     uid INT REFERENCES usertable(uid)
   );`;
 
+const createSubtaskTable = `
+CREATE TABLE IF NOT EXISTS subtasktable (
+    subTaskId SERIAL PRIMARY KEY,
+    subTaskName VARCHAR(40) NOT NULL,
+    subTaskPriorities VARCHAR(10) NOT NULL,
+    subTaskStartDate  DATE NOT NULL,
+    subTaskEndDate  DATE NOT NULL,
+    subTaskStatus VARCHAR(10) NOT NULL,
+    Tid INT REFERENCES tasktable(tid)
+  );`;
 
 
 // Function to create the 'bank_info' table if it doesn't exist
 pool.connect()
-    .then(client => {
-        return client.query(createtaskTable)
-            .then(() => client.release())
-            .catch(error => {
-                client.release();
-                console.error('Error creating table:', error);
-            });
+    .then(async client => {
+        try {
+            await client.query(createSubtaskTable);
+            return client.release();
+        } catch (error) {
+            client.release();
+            console.error('Error creating table:', error);
+        }
     })
     .catch(error => console.error('Error connecting to database:', error));
 
@@ -92,17 +103,16 @@ app.get('/taskmanager/signin', async (req, res) => {
 //get task data
 app.get('/taskmanager/task', async (req, res) => {
     const uid = req.query.uid;
-    const tid=req.query.tid
-    let where=`where uid='${uid}'`
-    if(tid){
-        where=` where tid='${tid}' `
+    const tid = req.query.tid
+    let where = `where uid='${uid}'`
+    if (tid) {
+        where = ` where tid='${tid}' `
     }
-    const data = await gettaskdata(where)
+    const data = await getAllSubTasks(where)
     const task = JSON.stringify(data[1])
+
     res.status(data[0]).end(task)
 });
-
-
 
 //post task data
 app.post('/taskmanager/task', async (req, res) => {
@@ -110,50 +120,116 @@ app.post('/taskmanager/task', async (req, res) => {
     const taskData = req.body;
 
     const insertQuery = `INSERT INTO public.tasktable(tname, priorities, sdate, edate, status, uid)
-        VALUES ( '${taskData.tname}', '${taskData.priorities}', '${taskData.sdate}', '${taskData.edate}', '${taskData.status}', ${uid});`
-    // console.log(insertQuery)
+        VALUES ( '${taskData.taskname}', '${taskData.priorities}', '${taskData.startdate}', '${taskData.enddate}', '${taskData.status}', ${uid})  RETURNING *;`
+
     pool.query(insertQuery)
-        .then(() => {
-            res.status(200).end(JSON.stringify(' Successfully inserted new record '));
+        .then((result) => {
+            res.status(200).end(JSON.stringify(result.rows[0].tid));
         })
         .catch(error => {
-            res.status(500).end(JSON.stringify('Error some thing went wrong ', error));
+            res.status(500).end(JSON.stringify(error));
         })
 
 });
 
-app.put('/taskmanager/task', (req, res) => {
+//update task data
+app.put('/taskmanager/task', async(req, res) => {
     const tid = req.query.tid;
     const taskData = req.body;
+    const where = `WHERE tid=${tid}`
+
     const update = `UPDATE public.tasktable
-	SET  tname='${taskData.tname}', priorities='${taskData.priorities}', sdate='${taskData.sdate}', edate='${taskData.edate}', status='${taskData.status}'
+	SET  tname='${taskData.taskname}', priorities='${taskData.priorities}', sdate='${taskData.startdate}', edate='${taskData.enddate}', status='${taskData.status}'
 	WHERE tid=${tid};`
-    //console.log(update)
+   
     pool.query(update)
-        .then(() => {
-            res.status(200).send(JSON.stringify('Success'));
+        .then(async () => {
+            res.status(200).end(JSON.stringify('successfully updated record '));
         })
         .catch(error => {
             res.status(500).end(JSON.stringify('Error some thing went wrong ', error));
         })
+
 });
 
-
-app.delete('/taskmanager/task', (req, res) => {
+//delete task
+app.delete('/taskmanager/task', async (req, res) => {
     const tid = req.query.tid;
-    const deleteQ = `
+    const where = `WHERE tid=${tid}`
+
+    const data = await deleteSubtask(where)
+    if (data[0] == 200) {
+        const deleteQ = `
     DELETE FROM public.tasktable
 	WHERE tid=${tid};`
-    //console.log(update)
-    pool.query(deleteQ)
+        //console.log(update)
+        pool.query(deleteQ)
+            .then(() => {
+                res.status(200).send(JSON.stringify('Successfully Deleted'));
+            })
+            .catch(error => {
+                res.status(500).end(JSON.stringify('Error some thing went wrong ', error));
+            })
+    }
+    else {
+        res.status(500).end(JSON.stringify('Error some thing went wrong ', error));
+    }
+});
+
+//get subtask by the subTaskId
+app.get('/taskmanager/subtask', async (req, res) => {
+    const subTaskId = req.query.subTaskId
+    const select = `
+    SELECT *
+	FROM public.subtasktable
+    where subtaskid=${subTaskId};`
+    const data = await getSubTasks(select)
+    const task = JSON.stringify(data[1])
+
+    res.status(data[0]).end(task)
+});
+
+//add new subtask
+app.post('/taskmanager/subtask', async (req, res) => {
+    const tid = req.query.tid;
+    const subtaskData = req.body;
+   const result= await addSubtask(tid,subtaskData)
+    res.status(result[0]).end(result[1]);
+});
+
+//delete subtask
+app.delete('/taskmanager/subtask', async (req, res) => {
+    const subTaskId = req.query.subTaskId;
+    const where = `WHERE subtaskid=${subTaskId}`
+
+    const data = await deleteSubtask(where)
+    const result = JSON.stringify(data[1])
+
+    res.status(data[0]).end(result)
+});
+
+//update subtask
+app.put('/taskmanager/subtask', async(req, res) => {
+    const subtaskid = req.query.subTaskId
+    const subtaskData = req.body;
+
+    const update = `UPDATE public.subtasktable
+	SET  subtaskname='${subtaskData.subtaskname}', subtaskpriorities='${subtaskData.subtaskpriorities}', subtaskstartdate='${subtaskData.subtaskstartdate}',
+     subtaskenddate='${subtaskData.subtaskenddate}', subtaskstatus='${subtaskData.subtaskstatus}'
+	WHERE subtaskid=${subtaskid};`
+
+    pool.query(update)
         .then(() => {
-            res.status(200).send(JSON.stringify('Successfully Deleted'));
+            res.status(200).send(JSON.stringify('Successfully updated the record'));
         })
         .catch(error => {
             res.status(500).end(JSON.stringify('Error some thing went wrong ', error));
         })
+    
+   
 });
 
+    
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
@@ -189,7 +265,7 @@ function gettaskdata(where) {
         pool.query(select)
             .then(result => {
                 const data = result.rows;
-               // console.log('Fetched data:', data);
+                // console.log('Fetched data:', data);
                 resolve([200, data]);
             })
             .catch(error => {
@@ -199,6 +275,76 @@ function gettaskdata(where) {
     });
 }
 
+function getSubTasks(select) {
+    return new Promise((resolve, reject) => {
+        pool.query(select)
+            .then(result => {
+                const subtasks = result.rows;
+                //  console.log('Fetched data:', subtasks);
+                resolve([200, subtasks]);
+            })
+            .catch(error => {
+                const subtasks = []
+                //  console.error('Error fetching data:', error);
+                reject([500, subtasks]);
+            });
+    })
+}
+
+function deleteSubtask(where) {
+    return new Promise((resolve, reject) => {
+        const deleteQ = `
+    DELETE FROM public.subtasktable
+	${where} ;
+    `
+        //console.log(update)
+        pool.query(deleteQ)
+            .then(() => {
+                response = JSON.stringify('Successfully Deleted')
+                resolve([200, response]);
+            })
+            .catch(error => {
+                reject([500, error])
+            })
+    });
+}
+
+async function getAllSubTasks(where) {
+    const datalist = await gettaskdata(where);
+
+    for (const element of datalist[1]) {
+        element.subTasks = [];
+        const select = `
+        SELECT subtaskid, subtaskname, subtaskpriorities, subtaskstartdate, subtaskenddate, subtaskstatus
+        FROM public.subtasktable
+        WHERE tid=${element.tid};`;
+        const subtasks = await getSubTasks(select);
+        element.subTasks = subtasks[1]
+        datalist.push(element);
+    }
+    return ([200, datalist[1]]);
+}
+
+function addSubtask(tid,subtaskData) {
+    return new Promise((resolve, reject) => {
+        const insertQuery = `    INSERT INTO public.subtasktable(
+            subtaskname, subtaskpriorities, subtaskstartdate, subtaskenddate, subtaskstatus, tid)
+            VALUES ( '${subtaskData.subtaskname}', '${subtaskData.subtaskpriorities}', '${subtaskData.subtaskstartdate}', 
+            '${subtaskData.subtaskenddate}', '${subtaskData.subtaskstatus}', ${tid});`
+        
+        pool.query(insertQuery)
+            .then(() => {
+                resolve([200,JSON.stringify('Data Sucessfully Inserted')])
+            })
+            .catch(error => {
+             reject([500,JSON.stringify(error)]);
+            })
+        })
+    }
 
 
-
+// const select = `
+// SELECT *
+// FROM tasktable LEFT OUTER JOIN subtasktable  ON tasktable.tid =subtasktable .tid
+// where tasktable.uid=9;
+//  `
