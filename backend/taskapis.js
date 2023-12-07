@@ -108,10 +108,11 @@ app.get('/taskmanager/task', async (req, res) => {
     if (tid) {
         where = ` where tid='${tid}' `
     }
-    const data = await getAllSubTasks(where)
+    const data = await gettaskdata(where)
     const task = JSON.stringify(data[1])
 
     res.status(data[0]).end(task)
+
 });
 
 //post task data
@@ -229,6 +230,7 @@ app.put('/taskmanager/subtask', async(req, res) => {
    
 });
 
+app.get('/taskmanager/subtask/join')
     
 
 const port = process.env.PORT || 3000;
@@ -259,8 +261,15 @@ function getuserdata(where) {
 
 
 function gettaskdata(where) {
-    const select = ` SELECT * FROM public.tasktable ${where} ;`
-    // console.log(select);
+    const select = `
+    SELECT
+  tasktable.*,
+  json_agg(subtasktable.*) AS subtasks
+FROM public.tasktable
+LEFT JOIN public.subtasktable ON tasktable.tid = subtasktable.tid
+${where}
+GROUP BY tasktable.tid`
+
     return new Promise((resolve, reject) => {
         pool.query(select)
             .then(result => {
